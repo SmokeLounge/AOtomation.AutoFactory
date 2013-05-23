@@ -20,6 +20,7 @@ namespace SmokeLounge.AOtomation.AutoFactory
     using System.ComponentModel.Composition.Hosting;
     using System.Diagnostics.Contracts;
     using System.Linq;
+    using System.Linq.Expressions;
     using System.Reflection;
 
     [Export(typeof(IAutoFactory<>))]
@@ -30,6 +31,10 @@ namespace SmokeLounge.AOtomation.AutoFactory
 
         private readonly CompositionContainer compositionContainer;
 
+        private readonly Lazy<Func<object[], T>> lazyFactoryDelegate;
+
+        private readonly Lazy<CtorInfo> lazyTypeCtor;
+
         #endregion
 
         #region Constructors and Destructors
@@ -37,9 +42,29 @@ namespace SmokeLounge.AOtomation.AutoFactory
         [ImportingConstructor]
         public MefAutoFactory(CompositionContainer compositionContainer)
         {
-            Contract.Requires<ArgumentNullException>(compositionContainer != null);
-
             this.compositionContainer = compositionContainer;
+            this.lazyTypeCtor = new Lazy<CtorInfo>(() => this.FindCtor(typeof(T)));
+            this.lazyFactoryDelegate = new Lazy<Func<object[], T>>(() => this.CreateFactoryDelegate<T>(this.TypeCtor));
+        }
+
+        #endregion
+
+        #region Public Properties
+
+        public Func<object[], T> FactoryDelegate
+        {
+            get
+            {
+                return this.lazyFactoryDelegate.Value;
+            }
+        }
+
+        public CtorInfo TypeCtor
+        {
+            get
+            {
+                return this.lazyTypeCtor.Value;
+            }
         }
 
         #endregion
@@ -48,88 +73,54 @@ namespace SmokeLounge.AOtomation.AutoFactory
 
         public T Create(params object[] args)
         {
-            // TODO: Optimize this method. use Castle.DynamicProxy?
-            args = args ?? new object[0];
-            var ctor = this.FindConstructor(args);
-            if (ctor == null)
-            {
-                if (args.Any() == false)
-                {
-                    return (T)Activator.CreateInstance(typeof(T));
-                }
-
-                throw new Exception("Could not find a suitable constructor.");
-            }
-
-            var imports = this.FindImports(ctor, args);
-
-            var ctorParams = new object[args.Length + imports.Length];
-            Array.Copy(args, 0, ctorParams, 0, args.Length);
-            Array.Copy(imports, 0, ctorParams, args.Length, imports.Length);
-
-            var export = typeof(T).GetInstanceDynamic(ctorParams);
-            return (T)export;
+            return this.FactoryDelegate(this.EnsureArgs(this.TypeCtor.ParamTypes, args).ToArray());
         }
 
         #endregion
 
         #region Methods
 
-        private ConstructorInfo FindConstructor(object[] args)
+        private Func<object[], TK> CreateFactoryDelegate<TK>(CtorInfo ctor)
         {
-            Contract.Requires(args != null);
-
-            var ctors = new List<ConstructorInfo>();
-            ctors.AddRange(
-                typeof(T).GetConstructors().Where(c => c.GetCustomAttribute<ImportingConstructorAttribute>() != null));
-
-            foreach (var ctor in ctors)
+            var arrayExpression = Expression.Parameter(typeof(object[]));
+            var paramExpressions = new List<Expression>();
+            var ctorParameters = ctor.ParamTypes;
+            for (var i = 0; i < ctorParameters.Length; i++)
             {
-                var ctorParameters = ctor.GetParameters();
-
-                if (args.Length > ctorParameters.Length)
-                {
-                    continue;
-                }
-
-                var match = true;
-                for (var i = 0; i < args.Length; i++)
-                {
-                    var argType = args[i].GetType();
-                    var paramType = ctorParameters[i].ParameterType;
-                    if (paramType.IsAssignableFrom(argType))
-                    {
-                        continue;
-                    }
-
-                    match = false;
-                    break;
-                }
-
-                if (match)
-                {
-                    return ctor;
-                }
+                var indexExpression = Expression.ArrayIndex(arrayExpression, Expression.Constant(i));
+                var unboxExpression = Expression.Convert(indexExpression, ctorParameters[i]);
+                paramExpressions.Add(unboxExpression);
             }
 
-            return null;
+            var newExpression = Expression.New(ctor.ConstructorInfo, paramExpressions);
+            var newLambda = Expression.Lambda<Func<object[], TK>>(newExpression, arrayExpression);
+            var compiledLambda = newLambda.Compile();
+            return compiledLambda;
         }
 
-        private object[] FindImports(ConstructorInfo ctor, object[] args)
+        private IEnumerable<object> EnsureArgs(IEnumerable<Type> ctorParams, params object[] args)
         {
-            Contract.Requires(ctor != null);
-            Contract.Requires(args != null);
-
-            var ctorParameters = ctor.GetParameters().Skip(args.Length);
-            var imports = new List<object>();
-            foreach (var ctorParameter in ctorParameters)
+            if (args == null || args.Length == 0)
             {
-                var import = this.GetOrCreateImport(ctorParameter.ParameterType);
-
-                imports.Add(import);
+                return ctorParams.Select(GetOrCreateNewParam);
             }
 
-            return imports.ToArray();
+            return args.Concat(ctorParams.Skip(args.Length).Select(GetOrCreateNewParam));
+        }
+
+        private CtorInfo FindCtor(Type type)
+        {
+            var ctor = (from constructorInfo in type.GetConstructors()
+                        where constructorInfo.GetCustomAttribute<ImportingConstructorAttribute>() != null
+                        let parameters = constructorInfo.GetParameters()
+                        orderby parameters.Count() descending
+                        select new CtorInfo(constructorInfo)).FirstOrDefault();
+            if (ctor == null)
+            {
+                throw new Exception("Could not find a suitable constructor.");
+            }
+
+            return ctor;
         }
 
         private object GetExportedValue(Type type)
@@ -144,29 +135,22 @@ namespace SmokeLounge.AOtomation.AutoFactory
             return import;
         }
 
-        private object GetOrCreateImport(Type type)
+        private object GetOrCreateNewParam(Type type)
         {
-            Contract.Requires(type != null);
-            Contract.Ensures(Contract.Result<object>() != null);
-
-            if (type.IsInterface && type.IsGenericType)
+            if (!type.IsInterface || !type.IsGenericType)
             {
-                var genericType = type.GetGenericTypeDefinition();
-                if (genericType == typeof(IAutoFactory<>))
-                {
-                    var mefAutoFactory = typeof(MefAutoFactory<>).MakeGenericType(type.GetGenericArguments());
-                    var import = mefAutoFactory.GetInstanceDynamic(this.GetExportedValue(typeof(CompositionContainer)));
-                    return import;
-                }
+                return this.GetExportedValue(type);
+            }
+
+            var genericType = type.GetGenericTypeDefinition();
+            if (genericType == typeof(IAutoFactory<>))
+            {
+                var mefAutoFactory = typeof(MefAutoFactory<>).MakeGenericType(type.GetGenericArguments());
+                var import = mefAutoFactory.GetInstanceDynamic(this.GetExportedValue(typeof(CompositionContainer)));
+                return import;
             }
 
             return this.GetExportedValue(type);
-        }
-
-        [ContractInvariantMethod]
-        private void ObjectInvariant()
-        {
-            Contract.Invariant(this.compositionContainer != null);
         }
 
         #endregion
