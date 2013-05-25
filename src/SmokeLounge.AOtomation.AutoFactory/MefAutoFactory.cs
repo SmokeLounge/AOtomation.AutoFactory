@@ -18,7 +18,6 @@ namespace SmokeLounge.AOtomation.AutoFactory
     using System.Collections.Generic;
     using System.ComponentModel.Composition;
     using System.ComponentModel.Composition.Hosting;
-    using System.Diagnostics.Contracts;
     using System.Linq;
     using System.Linq.Expressions;
     using System.Reflection;
@@ -102,10 +101,10 @@ namespace SmokeLounge.AOtomation.AutoFactory
         {
             if (args == null || args.Length == 0)
             {
-                return ctorParams.Select(GetOrCreateNewParam);
+                return ctorParams.Select(this.GetOrCreateNewParam);
             }
 
-            return args.Concat(ctorParams.Skip(args.Length).Select(GetOrCreateNewParam));
+            return args.Concat(ctorParams.Skip(args.Length).Select(this.GetOrCreateNewParam));
         }
 
         private CtorInfo FindCtor(Type type)
