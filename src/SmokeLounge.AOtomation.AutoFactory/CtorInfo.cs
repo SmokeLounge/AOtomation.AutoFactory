@@ -15,6 +15,7 @@
 namespace SmokeLounge.AOtomation.AutoFactory
 {
     using System;
+    using System.Diagnostics.Contracts;
     using System.Linq;
     using System.Reflection;
 
@@ -34,6 +35,8 @@ namespace SmokeLounge.AOtomation.AutoFactory
 
         public CtorInfo(ConstructorInfo constructorInfo)
         {
+            Contract.Requires<ArgumentNullException>(constructorInfo != null);
+
             this.constructorInfo = constructorInfo;
             this.parameters = constructorInfo.GetParameters();
             this.paramTypes = constructorInfo.GetParameters().Select(p => p.ParameterType).ToArray();
@@ -47,6 +50,8 @@ namespace SmokeLounge.AOtomation.AutoFactory
         {
             get
             {
+                Contract.Ensures(Contract.Result<ConstructorInfo>() != null);
+
                 return this.constructorInfo;
             }
         }
@@ -55,6 +60,8 @@ namespace SmokeLounge.AOtomation.AutoFactory
         {
             get
             {
+                Contract.Ensures(Contract.Result<Type[]>() != null);
+
                 return this.paramTypes;
             }
         }
@@ -63,8 +70,22 @@ namespace SmokeLounge.AOtomation.AutoFactory
         {
             get
             {
+                Contract.Ensures(Contract.Result<ParameterInfo[]>() != null);
+
                 return this.parameters;
             }
+        }
+
+        #endregion
+
+        #region Methods
+
+        [ContractInvariantMethod]
+        private void ObjectInvariant()
+        {
+            Contract.Invariant(this.constructorInfo != null);
+            Contract.Invariant(this.paramTypes != null);
+            Contract.Invariant(this.parameters != null);
         }
 
         #endregion

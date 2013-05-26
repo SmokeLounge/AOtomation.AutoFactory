@@ -17,18 +17,16 @@ namespace SmokeLounge.AOtomation.AutoFactory
     using System;
     using System.Collections.Generic;
     using System.ComponentModel.Composition;
-    using System.ComponentModel.Composition.Hosting;
+    using System.Diagnostics.Contracts;
     using System.Linq;
     using System.Linq.Expressions;
     using System.Reflection;
 
     [Export(typeof(IAutoFactory<>))]
-    public class MefAutoFactory<T> : IAutoFactory<T>
+    public class MefAutoFactory<T> : AbstractAutoFactory<T>
         where T : class
     {
         #region Fields
-
-        private readonly CompositionContainer compositionContainer;
 
         private readonly Lazy<Func<object[], T>> lazyFactoryDelegate;
 
@@ -39,9 +37,11 @@ namespace SmokeLounge.AOtomation.AutoFactory
         #region Constructors and Destructors
 
         [ImportingConstructor]
-        public MefAutoFactory(CompositionContainer compositionContainer)
+        public MefAutoFactory(MefIoC mefIoC)
+            : base(mefIoC)
         {
-            this.compositionContainer = compositionContainer;
+            Contract.Requires(mefIoC != null);
+
             this.lazyTypeCtor = new Lazy<CtorInfo>(() => this.FindCtor(typeof(T)));
             this.lazyFactoryDelegate = new Lazy<Func<object[], T>>(() => this.CreateFactoryDelegate<T>(this.TypeCtor));
         }
@@ -50,37 +50,60 @@ namespace SmokeLounge.AOtomation.AutoFactory
 
         #region Public Properties
 
-        public Func<object[], T> FactoryDelegate
+        public override Func<object[], T> FactoryDelegate
         {
             get
             {
-                return this.lazyFactoryDelegate.Value;
+                var value = this.lazyFactoryDelegate.Value;
+                if (value == null)
+                {
+                    throw new InvalidOperationException();
+                }
+
+                return value;
             }
         }
 
-        public CtorInfo TypeCtor
+        public override CtorInfo TypeCtor
         {
             get
             {
-                return this.lazyTypeCtor.Value;
+                var value = this.lazyTypeCtor.Value;
+                if (value == null)
+                {
+                    throw new InvalidOperationException();
+                }
+
+                return value;
             }
-        }
-
-        #endregion
-
-        #region Public Methods and Operators
-
-        public T Create(params object[] args)
-        {
-            return this.FactoryDelegate(this.EnsureArgs(this.TypeCtor.ParamTypes, args).ToArray());
         }
 
         #endregion
 
         #region Methods
 
+        protected override object GetOrCreateNewParam(Type type)
+        {
+            if (!type.IsInterface || !type.IsGenericType)
+            {
+                return this.MiniIoC.GetInstance(type);
+            }
+
+            var genericType = type.GetGenericTypeDefinition();
+            if (genericType == typeof(IAutoFactory<>))
+            {
+                var mefAutoFactory = typeof(MefAutoFactory<>).MakeGenericType(type.GetGenericArguments());
+                var import = mefAutoFactory.GetInstanceDynamic(this.MiniIoC);
+                return import;
+            }
+
+            return this.MiniIoC.GetInstance(type);
+        }
+
         private Func<object[], TK> CreateFactoryDelegate<TK>(CtorInfo ctor)
         {
+            Contract.Requires(ctor != null);
+
             var arrayExpression = Expression.Parameter(typeof(object[]));
             var paramExpressions = new List<Expression>();
             var ctorParameters = ctor.ParamTypes;
@@ -97,18 +120,10 @@ namespace SmokeLounge.AOtomation.AutoFactory
             return compiledLambda;
         }
 
-        private IEnumerable<object> EnsureArgs(IEnumerable<Type> ctorParams, params object[] args)
-        {
-            if (args == null || args.Length == 0)
-            {
-                return ctorParams.Select(this.GetOrCreateNewParam);
-            }
-
-            return args.Concat(ctorParams.Skip(args.Length).Select(this.GetOrCreateNewParam));
-        }
-
         private CtorInfo FindCtor(Type type)
         {
+            Contract.Requires(type != null);
+
             var ctor = (from constructorInfo in type.GetConstructors()
                         where constructorInfo.GetCustomAttribute<ImportingConstructorAttribute>() != null
                         let parameters = constructorInfo.GetParameters()
@@ -122,34 +137,11 @@ namespace SmokeLounge.AOtomation.AutoFactory
             return ctor;
         }
 
-        private object GetExportedValue(Type type)
+        [ContractInvariantMethod]
+        private void ObjectInvariant()
         {
-            var contract = AttributedModelServices.GetContractName(type);
-            var import = this.compositionContainer.GetExportedValueOrDefault<object>(contract);
-            if (import == null)
-            {
-                throw new Exception(string.Format("Could not locate any instances of contract {0}.", contract));
-            }
-
-            return import;
-        }
-
-        private object GetOrCreateNewParam(Type type)
-        {
-            if (!type.IsInterface || !type.IsGenericType)
-            {
-                return this.GetExportedValue(type);
-            }
-
-            var genericType = type.GetGenericTypeDefinition();
-            if (genericType == typeof(IAutoFactory<>))
-            {
-                var mefAutoFactory = typeof(MefAutoFactory<>).MakeGenericType(type.GetGenericArguments());
-                var import = mefAutoFactory.GetInstanceDynamic(this.GetExportedValue(typeof(CompositionContainer)));
-                return import;
-            }
-
-            return this.GetExportedValue(type);
+            Contract.Invariant(this.lazyFactoryDelegate != null);
+            Contract.Invariant(this.lazyTypeCtor != null);
         }
 
         #endregion

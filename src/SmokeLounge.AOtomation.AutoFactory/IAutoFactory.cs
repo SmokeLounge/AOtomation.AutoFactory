@@ -21,6 +21,16 @@ namespace SmokeLounge.AOtomation.AutoFactory
     public interface IAutoFactory<out T>
         where T : class
     {
+        #region Public Properties
+
+        Func<object[], T> FactoryDelegate { get; }
+
+        IMiniIoC MiniIoC { get; }
+
+        CtorInfo TypeCtor { get; }
+
+        #endregion
+
         #region Public Methods and Operators
 
         T Create(params object[] args);
@@ -32,6 +42,40 @@ namespace SmokeLounge.AOtomation.AutoFactory
     internal abstract class IAutoFactoryContract<T> : IAutoFactory<T>
         where T : class
     {
+        #region Public Properties
+
+        public Func<object[], T> FactoryDelegate
+        {
+            get
+            {
+                Contract.Ensures(Contract.Result<Func<object[], T>>() != null);
+
+                throw new NotImplementedException();
+            }
+        }
+
+        public IMiniIoC MiniIoC
+        {
+            get
+            {
+                Contract.Ensures(Contract.Result<IMiniIoC>() != null);
+
+                throw new NotImplementedException();
+            }
+        }
+
+        public CtorInfo TypeCtor
+        {
+            get
+            {
+                Contract.Ensures(Contract.Result<CtorInfo>() != null);
+
+                throw new NotImplementedException();
+            }
+        }
+
+        #endregion
+
         #region Public Methods and Operators
 
         public T Create(params object[] args)
