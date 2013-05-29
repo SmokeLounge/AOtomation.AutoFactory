@@ -82,7 +82,7 @@ namespace SmokeLounge.AOtomation.AutoFactory
 
         #region Methods
 
-        protected override object GetOrCreateNewParam(Type type)
+        protected internal override object GetOrCreateNewParam(Type type)
         {
             if (!type.IsInterface || !type.IsGenericType)
             {

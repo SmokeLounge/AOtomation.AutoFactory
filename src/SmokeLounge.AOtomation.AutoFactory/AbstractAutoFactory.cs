@@ -84,7 +84,7 @@ namespace SmokeLounge.AOtomation.AutoFactory
             return args.Concat(ctorParams.Skip(args.Length).Select(this.GetOrCreateNewParam));
         }
 
-        protected virtual object GetOrCreateNewParam(Type type)
+        protected internal virtual object GetOrCreateNewParam(Type type)
         {
             Contract.Requires(type != null);
 

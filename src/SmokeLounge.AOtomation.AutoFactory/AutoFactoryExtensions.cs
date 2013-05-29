@@ -28,7 +28,7 @@ namespace SmokeLounge.AOtomation.AutoFactory
             Contract.Ensures(Contract.Result<IAutoFactory<T>>() != null);
 
             return new MiniIoCAutoFactory<T>(
-                source.TypeCtor, source.FactoryDelegate, new CompositeIoC(new[] { miniIoC, source.MiniIoC }));
+                source, new CompositeIoC(new[] { miniIoC, source.MiniIoC }));
         }
 
         #endregion

@@ -20,25 +20,21 @@ namespace SmokeLounge.AOtomation.AutoFactory
     public class MiniIoCAutoFactory<T> : AbstractAutoFactory<T>
         where T : class
     {
+        private readonly IAutoFactory<T> parent;
+
         #region Fields
-
-        private readonly CtorInfo ctorInfo;
-
-        private readonly Func<object[], T> factoryDelegate;
 
         #endregion
 
         #region Constructors and Destructors
 
-        public MiniIoCAutoFactory(CtorInfo ctorInfo, Func<object[], T> factoryDelegate, IMiniIoC miniIoC)
+        public MiniIoCAutoFactory(IAutoFactory<T> parent, IMiniIoC miniIoC)
             : base(miniIoC)
         {
-            Contract.Requires<ArgumentNullException>(ctorInfo != null);
-            Contract.Requires<ArgumentNullException>(factoryDelegate != null);
+            Contract.Requires<ArgumentNullException>(parent != null);
             Contract.Requires<ArgumentNullException>(miniIoC != null);
 
-            this.ctorInfo = ctorInfo;
-            this.factoryDelegate = factoryDelegate;
+            this.parent = parent;
         }
 
         #endregion
@@ -49,7 +45,7 @@ namespace SmokeLounge.AOtomation.AutoFactory
         {
             get
             {
-                return this.factoryDelegate;
+                return this.parent.FactoryDelegate;
             }
         }
 
@@ -57,8 +53,20 @@ namespace SmokeLounge.AOtomation.AutoFactory
         {
             get
             {
-                return this.ctorInfo;
+                return this.parent.TypeCtor;
             }
+        }
+
+        protected internal override object GetOrCreateNewParam(Type type)
+        {
+            var param = base.GetOrCreateNewParam(type);
+            if (param != null)
+            {
+                return param;
+            }
+
+            var factoryImp = this.parent as AbstractAutoFactory<T>;
+            return factoryImp != null ? factoryImp.GetOrCreateNewParam(type) : null;
         }
 
         #endregion
@@ -68,8 +76,7 @@ namespace SmokeLounge.AOtomation.AutoFactory
         [ContractInvariantMethod]
         private void ObjectInvariant()
         {
-            Contract.Invariant(this.ctorInfo != null);
-            Contract.Invariant(this.factoryDelegate != null);
+            Contract.Invariant(this.parent != null);
         }
 
         #endregion
